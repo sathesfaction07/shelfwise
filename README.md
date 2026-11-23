@@ -1,4 +1,4 @@
-# amazon-product-intelligence
+# Shelfwise
 
 For the existing TestFloci + Ollama local stack, see [Floci setup](docs/FLOCI.md).
 
@@ -115,7 +115,7 @@ The Flask web server wraps the pipeline with a daily budget guard, a per-query r
 ## Project Structure
 
 ```
-amazon-product-intelligence/
+shelfwise/
 ├── app.py                          Flask entry point, SSE /stream, cache + budget guard
 ├── setup.sh                        venv + deps + smoke test
 ├── requirements.txt

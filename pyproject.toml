@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "amazon-product-intelligence"
+name = "shelfwise"
 version = "1.0.0"
 description = "Multi-agent product intelligence system using Amazon Bedrock to analyze marketplace products, reviews, ratings, and prices with FinOps cost tracking"
 readme = "README.md"
