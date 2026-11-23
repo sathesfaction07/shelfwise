@@ -308,7 +308,7 @@ class AmazonProvider(ProductDataProvider):
                 except TimeoutException:
                     pass  # extraction below handles the empty case
 
-                results = self._extract_search_tiles(driver, max_results)
+                results = self._extract_search_tiles(driver, max_results, country)
                 self.page_stats["pages_processed"] += 1
                 self._report_pages()
                 if results:
@@ -355,9 +355,12 @@ class AmazonProvider(ProductDataProvider):
         log_event("amazon_search", product_type=product_type, country=country, result_count=0)
         return []
 
-    def _extract_search_tiles(self, driver, max_results: int) -> list[dict]:
+    def _extract_search_tiles(self, driver, max_results: int, country: str) -> list[dict]:
         """
         Pulls organic products from the current search-results page.
+        `country` supplies the default currency when the price text carries no
+        recognisable symbol (it was previously an undefined name here, and the
+        NameError -- swallowed by the price block's `except` -- discarded the price).
         Primary selector: div[data-component-type='s-search-result'].
         Fallback: any div[data-asin] that contains an h2 (Amazon A/B-tests
         layouts where the component-type attribute is absent).

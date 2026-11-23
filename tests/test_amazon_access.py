@@ -78,3 +78,55 @@ def test_error_stream_offers_explicit_marketplace_switch(monkeypatch):
     assert '"country": "US"' in text
     assert '"alternative_country": "IN"' in text
     assert '"incomplete": true' in text
+
+
+class _Node:
+    """Minimal stand-in for a Selenium WebElement inside one search-result tile."""
+
+    def __init__(self, text="", attrs=None, children=None):
+        self.text = text
+        self._attrs = attrs or {}
+        self._children = children or {}
+
+    def get_attribute(self, name):
+        return self._attrs.get(name)
+
+    def find_element(self, _by, selector):
+        if selector not in self._children:
+            raise LookupError(selector)  # Selenium raises NoSuchElementException here
+        return self._children[selector]
+
+    def find_elements(self, _by, selector):
+        return [self._children[selector]] if selector in self._children else []
+
+
+def _search_page_with_price(price_text):
+    tile = _Node(
+        attrs={"data-asin": "B0TEST0001", "textContent": ""},
+        children={
+            "h2 span": _Node(text="Widget"),
+            "span.a-price span.a-offscreen": _Node(attrs={"textContent": price_text}),
+        },
+    )
+    page = Mock()
+    page.find_elements.side_effect = lambda _by, sel: (
+        [tile] if sel == "div[data-component-type='s-search-result']" else []
+    )
+    return page
+
+
+@pytest.mark.parametrize(("country", "currency"), [("US", "$"), ("de", "€")])
+def test_a_price_without_a_currency_symbol_takes_the_country_default(country, currency):
+    """The fallback used to reference an undefined `country`. The NameError was swallowed by
+    the price block's `except Exception`, so the price was silently discarded as well."""
+    provider = AmazonProvider()
+    [product] = provider._extract_search_tiles(_search_page_with_price("38.07"), 5, country)
+    assert product["price"] == 38.07
+    assert product["currency"] == currency
+
+
+def test_a_currency_symbol_in_the_text_still_wins_over_the_country_default():
+    provider = AmazonProvider()
+    [product] = provider._extract_search_tiles(_search_page_with_price("£38.07"), 5, "US")
+    assert product["price"] == 38.07
+    assert product["currency"] == "£"
