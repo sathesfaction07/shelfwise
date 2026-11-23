@@ -1,0 +1,453 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Julie — provisions S3, IAM,
+  Lambda, CloudWatch, SNS, EventBridge, and AgentCore Runtime/Gateway
+  resources. NOTE: AWS::BedrockAgentCore::Runtime/Gateway/GatewayTarget are
+  recent resource types with thin public docs — verify current property syntax
+  before deploying. If AgentCore resource creation fails, comment out the
+  AgentCore* resources and create the Runtime/Gateway via the AgentCore CLI
+  instead; everything else in this template works independently of that.
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Description: Email address for SNS alarm/cost notifications. You must confirm the SNS subscription email after deploy.
+
+  DailyCostBudgetUsd:
+    Type: Number
+    Default: 5
+    Description: Alarm threshold for EstimatedLLMCost (daily ceiling in USD).
+
+  AgentErrorThreshold:
+    Type: Number
+    Default: 5
+    Description: Alarm threshold for AgentErrors within 5 minutes.
+
+  InputTokenAlarmThreshold:
+    Type: Number
+    Default: 50000
+    Description: Alarm threshold for InputTokens per hour.
+
+  ModelId:
+    Type: String
+    Default: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: >
+      Bedrock model ID for LLM-backed agents. IMPORTANT — the cross-region
+      inference profile prefix (us.) is required; the base model ID does not
+      support on-demand throughput. Must also exist in
+      src/product_intelligence/finops/model_pricing.json for cost tracking.
+
+  ReviewWindowDays:
+    Type: Number
+    Default: 90
+    MinValue: 7
+    MaxValue: 366
+    Description: >
+      Default number of days to look back for customer reviews.
+      Users can override per-request via the UI (7–366). This sets the
+      environment default for Lambda/Runtime deployments.
+
+  DiscoveryPoolSize:
+    Type: Number
+    Default: 8
+    Description: >
+      How many search-result tiles to pull before ranking. Each tile costs a
+      browser page fetch in live mode — keep this lean for faster response.
+
+
+Resources:
+
+  # ---------------------------------------------------------------------
+  # S3 — stores daily FinOps cost reports
+  # ---------------------------------------------------------------------
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "julie-reports-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldReports
+            Status: Enabled
+            ExpirationInDays: 180
+
+  # ---------------------------------------------------------------------
+  # CloudWatch Log Group
+  # ---------------------------------------------------------------------
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /julie/app
+      RetentionInDays: 30
+
+  # ---------------------------------------------------------------------
+  # CloudWatch Metric Filters — extract custom metrics from structured log
+  # events in AppLogGroup. These feed the three CloudWatch Alarms.
+  # Log lines must be JSON objects; see observability/logging.py.
+  # ---------------------------------------------------------------------
+  AgentErrorsMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AppLogGroup
+      FilterPattern: '{ $.level = "ERROR" }'
+      MetricTransformations:
+        - MetricName: AgentErrors
+          MetricNamespace: Julie
+          MetricValue: "1"
+          DefaultValue: 0
+
+  InputTokensMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AppLogGroup
+      FilterPattern: '{ $.input_tokens = * }'
+      MetricTransformations:
+        - MetricName: InputTokens
+          MetricNamespace: Julie
+          MetricValue: "$.input_tokens"
+          DefaultValue: 0
+
+  EstimatedLLMCostMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AppLogGroup
+      FilterPattern: '{ $.estimated_cost = * }'
+      MetricTransformations:
+        - MetricName: EstimatedLLMCost
+          MetricNamespace: Julie
+          MetricValue: "$.estimated_cost"
+          DefaultValue: 0
+
+
+  # ---------------------------------------------------------------------
+  # SNS
+  # ---------------------------------------------------------------------
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: JulieAlerts
+
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # ---------------------------------------------------------------------
+  # IAM — least privilege, separate roles per component
+  # ---------------------------------------------------------------------
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "julie-lambda-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: julie-lambda-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/julie/*"
+              - Sid: ReadWriteReportBucket
+                Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub "${ReportBucket.Arn}/*"
+              - Sid: QueryLogsForCostReport
+                Effect: Allow
+                Action: [logs:StartQuery, logs:GetQueryResults, logs:StopQuery]
+                Resource: "*"
+              - Sid: PublishCustomMetrics
+                Effect: Allow
+                Action: [cloudwatch:PutMetricData]
+                Resource: "*"
+                Condition:
+                  StringEquals: { "cloudwatch:namespace": "Julie" }
+
+  AgentRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "julie-agent-runtime-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: bedrock-agentcore.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: julie-agent-runtime-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InvokeBedrockModels
+                Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource:
+                  # Cross-region inference profiles (us. prefix) route to foundation
+                  # models in any us-* region, so both ARN shapes must be allowed.
+                  - "arn:aws:bedrock:*::foundation-model/anthropic.*"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.anthropic.*"
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/julie/*"
+              - Sid: PublishCustomMetrics
+                Effect: Allow
+                Action: [cloudwatch:PutMetricData]
+                Resource: "*"
+                Condition:
+                  StringEquals: { "cloudwatch:namespace": "Julie" }
+              - Sid: InvokeGatewayTools
+                Effect: Allow
+                Action: [bedrock-agentcore:InvokeGateway]
+                Resource: "*"
+
+  # ---------------------------------------------------------------------
+  # Lambda tools — one function per responsibility
+  # ---------------------------------------------------------------------
+  ProductSearchFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: julie-product-search
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+          REVIEW_WINDOW_DAYS: !Ref ReviewWindowDays
+          DISCOVERY_POOL_SIZE: !Ref DiscoveryPoolSize
+      Code:
+        ZipFile: |
+          # Placeholder inline code. Real deployment packages lambda/product_search/handler.py
+          # together with src/product_intelligence/ — see the "Packaging Lambdas" section of README.
+          def handler(event, context):
+              return {"error": "Placeholder deployed via inline ZipFile - package the real handler first."}
+
+  ReviewFetchFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: julie-review-fetch
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+          REVIEW_WINDOW_DAYS: !Ref ReviewWindowDays
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"error": "Placeholder deployed via inline ZipFile - package the real handler first."}
+
+  PriceFetchFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: julie-price-fetch
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"error": "Placeholder deployed via inline ZipFile - package the real handler first."}
+
+  DailyCostReportFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: julie-daily-cost-report
+      Runtime: python3.12
+      Handler: handler.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 120
+      MemorySize: 256
+      Environment:
+        Variables:
+          REPORT_BUCKET: !Ref ReportBucket
+          LOG_GROUP_NAME: /julie/app
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {"error": "Placeholder deployed via inline ZipFile - package the real handler first."}
+
+  DailyCostReportFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${DailyCostReportFunction}"
+      RetentionInDays: 30
+
+  # ---------------------------------------------------------------------
+  # EventBridge — scheduled FinOps report
+  # ---------------------------------------------------------------------
+  DailyCostReportSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: julie-daily-cost-report
+      Description: "Every day at 08:00 UTC, trigger the FinOps cost report Lambda."
+      ScheduleExpression: "cron(0 8 * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt DailyCostReportFunction.Arn
+          Id: DailyCostReportTarget
+
+  DailyCostReportSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DailyCostReportFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DailyCostReportSchedule.Arn
+
+  # ---------------------------------------------------------------------
+  # CloudWatch Alarms — exactly three
+  # ---------------------------------------------------------------------
+  AgentErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: AgentErrorsAlarm
+      AlarmDescription: "AgentErrors >= threshold within 5 minutes."
+      Namespace: Julie
+      MetricName: AgentErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref AgentErrorThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  ExcessiveTokenConsumptionAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: ExcessiveTokenConsumptionAlarm
+      AlarmDescription: "InputTokens >= configured threshold per hour."
+      Namespace: Julie
+      MetricName: InputTokens
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: !Ref InputTokenAlarmThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  EstimatedCostAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: EstimatedCostAlarm
+      AlarmDescription: "EstimatedLLMCost >= daily budget."
+      Namespace: Julie
+      MetricName: EstimatedLLMCost
+      Statistic: Sum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: !Ref DailyCostBudgetUsd
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  # ---------------------------------------------------------------------
+  # AgentCore Runtime
+  # ---------------------------------------------------------------------
+  AgentRuntime:
+    Type: AWS::BedrockAgentCore::Runtime
+    Properties:
+      AgentRuntimeName: julie-runtime
+      Description: "Hosts the 4-agent product intelligence pipeline (agentcore/runtime.py)."
+      RoleArn: !GetAtt AgentRuntimeRole.Arn
+      NetworkConfiguration:
+        NetworkMode: PUBLIC
+      AgentRuntimeArtifact:
+        CodeConfiguration:
+          Code:
+            S3:
+              # Upload the packaged agentcore/ + src/ directory to this S3 location before
+              # deploying, or deploy the Runtime via `agentcore launch` instead and comment
+              # out this resource — see README's "Deploying AgentCore Runtime" section.
+              Bucket: !Ref ReportBucket
+              Prefix: agent-artifact/runtime.zip
+          EntryPoint: ["agentcore/runtime.py"]
+          Runtime: PYTHON_3_12
+      EnvironmentVariables:
+        MODEL_ID: !Ref ModelId
+        REVIEW_WINDOW_DAYS: !Ref ReviewWindowDays
+        DISCOVERY_POOL_SIZE: !Ref DiscoveryPoolSize
+        METRICS_NAMESPACE: Julie
+        LOG_GROUP_NAME: /julie/app
+
+  # ---------------------------------------------------------------------
+  # AgentCore Gateway + GatewayTarget
+  # Exposes the Lambda tools as MCP tools (tools/list, tools/call).
+  # ---------------------------------------------------------------------
+  AgentGateway:
+    Type: AWS::BedrockAgentCore::Gateway
+    Properties:
+      Name: julie-gateway
+      Description: "MCP Gateway exposing search_products/get_reviews/get_price_history as tools."
+      RoleArn: !GetAtt AgentRuntimeRole.Arn
+      ProtocolType: MCP
+      AuthorizerType: AWS_IAM
+
+  ProductSearchGatewayTarget:
+    Type: AWS::BedrockAgentCore::GatewayTarget
+    Properties:
+      GatewayIdentifier: !Ref AgentGateway
+      Name: search-products-target
+      Description: "Exposes the product_search Lambda as an MCP tool."
+      TargetConfiguration:
+        Mcp:
+          Lambda:
+            LambdaArn: !GetAtt ProductSearchFunction.Arn
+            ToolSchema:
+              InlinePayload:
+                - Name: search_products
+                  Description: "Find candidate products for a product type and Amazon marketplace country."
+                  InputSchema:
+                    InlinePayload: >
+                      {"type":"object","properties":{"product_type":{"type":"string"},
+                      "country":{"type":"string","description":"ISO country code from the 25 supported Amazon marketplaces"},
+                      "max_results":{"type":"integer"},
+                      "review_window_days":{"type":"integer","description":"Days to look back for reviews (7-366, default 90)"}},
+                      "required":["product_type","country"]}
+      CredentialProviderConfigurations:
+        - CredentialProviderType: GATEWAY_IAM_ROLE
+
+Outputs:
+  S3BucketName:
+    Value: !Ref ReportBucket
+  SNSTopicArn:
+    Value: !Ref AlertsTopic
+  AgentRuntimeArn:
+    Value: !GetAtt AgentRuntime.AgentRuntimeArn
+  GatewayArn:
+    Value: !GetAtt AgentGateway.GatewayArn
+  ProductSearchFunctionArn:
+    Value: !GetAtt ProductSearchFunction.Arn
+  ReviewFetchFunctionArn:
+    Value: !GetAtt ReviewFetchFunction.Arn
+  PriceFetchFunctionArn:
+    Value: !GetAtt PriceFetchFunction.Arn

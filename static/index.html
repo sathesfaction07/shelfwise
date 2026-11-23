@@ -1,0 +1,1196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Julie</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            amazon: {
+              navy: '#232f3e',
+              'navy-light': '#37475a',
+              orange: '#ff9900',
+              'orange-hover': '#e68a00',
+              teal: '#007185',
+              'teal-light': '#008499',
+              'teal-bg': '#e6f3f5',
+              green: '#067d62',
+              'green-bg': '#e6f4f1',
+              red: '#c0392b',
+              'red-bg': '#fdecea',
+            }
+          },
+          animation: {
+            'pulse-ring': 'pulse 1.5s cubic-bezier(0.4,0,0.6,1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: "Amazon Ember", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+
+    .pipeline-card-active .indicator-dot {
+      background-color: #007185;
+      box-shadow: 0 0 0 4px rgba(0,113,133,0.25);
+      animation: pulse-dot 1.4s ease-in-out infinite;
+    }
+    .pipeline-card-done .indicator-dot {
+      background-color: #067d62;
+      animation: none;
+      box-shadow: none;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(0,113,133,0.5); }
+      50%       { box-shadow: 0 0 0 8px rgba(0,113,133,0); }
+    }
+    .pipeline-card-active {
+      border-color: #007185 !important;
+      box-shadow: 0 0 0 2px rgba(0,113,133,0.3);
+    }
+    .pipeline-card-done {
+      border-color: #067d62 !important;
+    }
+
+    .score-bar-fill {
+      transition: width 0.8s ease-in-out;
+    }
+    .confidence-bar-fill {
+      transition: width 1s ease-in-out;
+    }
+    .recommendation-glow {
+      box-shadow: 0 0 0 2px #ff9900, 0 8px 32px rgba(255,153,0,0.22), 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .candidate-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+    }
+    .candidate-card { transition: transform 0.15s, box-shadow 0.15s; }
+
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { opacity: 1; }
+
+    .sse-log-item { animation: fadeSlideIn 0.3s ease; }
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-card { animation: cardAppear 0.4s ease; }
+    @keyframes cardAppear {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .dialogue-bubble { animation: fadeSlideIn 0.3s ease; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: #c8c8c8; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #a0a0a0; }
+
+    .tooltip-wrapper:hover .tooltip-text { display: block; }
+    .tooltip-text { display: none; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col">
+
+  <!-- ═══════════════════════════════════════════════
+       HEADER
+  ═══════════════════════════════════════════════ -->
+  <header class="bg-[#232f3e] shadow-lg sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
+      <!-- Orange chart/search icon -->
+      <div class="flex-shrink-0">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="36" height="36" rx="8" fill="#ff9900" fill-opacity="0.15"/>
+          <!-- Bar chart -->
+          <rect x="7" y="22" width="4" height="7" rx="1" fill="#ff9900"/>
+          <rect x="13" y="17" width="4" height="12" rx="1" fill="#ff9900"/>
+          <rect x="19" y="12" width="4" height="17" rx="1" fill="#ff9900"/>
+          <!-- Magnifier -->
+          <circle cx="26.5" cy="10.5" r="4" stroke="#ff9900" stroke-width="1.8" fill="none"/>
+          <line x1="29.5" y1="13.5" x2="32" y2="16" stroke="#ff9900" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-white font-bold text-xl leading-tight tracking-tight">Julie</h1>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <span id="budget-badge" class="hidden sm:inline-flex items-center gap-1.5 bg-[#37475a] text-[#8ba0b4] text-xs px-3 py-1.5 rounded-full border border-[#4a5e72]" title="Estimated LLM spend today vs daily budget">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#ff9900] inline-block"></span>
+          <span id="budget-text">Budget: —</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════
+       MAIN CONTENT
+  ═══════════════════════════════════════════════ -->
+  <main class="flex-1 max-w-6xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+
+    <!-- ─────────────────────────────────────────────
+         AGENT PIPELINE STRIP
+    ───────────────────────────────────────────── -->
+    <section>
+      <div class="flex items-center gap-2 mb-3">
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Agent Pipeline</h2>
+        <div class="flex-1 h-px bg-gray-200"></div>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="pipeline-strip">
+
+        <!-- Step 1: Discovery -->
+        <div id="strip-discovery" class="pipeline-card bg-white border-2 border-gray-200 rounded-xl p-4 relative transition-all duration-300">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Step 1</span>
+            <div class="flex items-center gap-1.5">
+              <span id="chk-discovery" class="hidden text-[#067d62]">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#067d62"/><path d="M5 8l2 2 4-4" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span id="ind-discovery" class="indicator-dot w-2.5 h-2.5 rounded-full bg-gray-300 inline-block transition-all duration-300"></span>
+            </div>
+          </div>
+          <p class="font-semibold text-gray-800 text-sm mb-1">🔍 Discovery</p>
+          <p class="text-xs text-gray-500 leading-relaxed">Finds candidate products for your search across the marketplace</p>
+        </div>
+
+        <!-- Step 2: Review Intelligence -->
+        <div id="strip-review" class="pipeline-card bg-white border-2 border-gray-200 rounded-xl p-4 relative transition-all duration-300">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Step 2</span>
+            <div class="flex items-center gap-1.5">
+              <span id="chk-review" class="hidden text-[#067d62]">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#067d62"/><path d="M5 8l2 2 4-4" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span id="ind-review" class="indicator-dot w-2.5 h-2.5 rounded-full bg-gray-300 inline-block transition-all duration-300"></span>
+            </div>
+          </div>
+          <p class="font-semibold text-gray-800 text-sm mb-1">⭐ Review Intelligence</p>
+          <p class="text-xs text-gray-500 leading-relaxed">Reads recent customer reviews from the live product pages and uses AI to extract what buyers love and hate</p>
+        </div>
+
+        <!-- Step 3: Price & Rating -->
+        <div id="strip-pricing" class="pipeline-card bg-white border-2 border-gray-200 rounded-xl p-4 relative transition-all duration-300">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Step 3</span>
+            <div class="flex items-center gap-1.5">
+              <span id="chk-pricing" class="hidden text-[#067d62]">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#067d62"/><path d="M5 8l2 2 4-4" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span id="ind-pricing" class="indicator-dot w-2.5 h-2.5 rounded-full bg-gray-300 inline-block transition-all duration-300"></span>
+            </div>
+          </div>
+          <p class="font-semibold text-gray-800 text-sm mb-1">💰 Price &amp; Rating</p>
+          <p class="text-xs text-gray-500 leading-relaxed">Captures today's price and rating from the live page</p>
+        </div>
+
+        <!-- Step 4: Recommendation -->
+        <div id="strip-recommendation" class="pipeline-card bg-white border-2 border-gray-200 rounded-xl p-4 relative transition-all duration-300">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Step 4</span>
+            <div class="flex items-center gap-1.5">
+              <span id="chk-recommendation" class="hidden text-[#067d62]">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#067d62"/><path d="M5 8l2 2 4-4" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <span id="ind-recommendation" class="indicator-dot w-2.5 h-2.5 rounded-full bg-gray-300 inline-block transition-all duration-300"></span>
+            </div>
+          </div>
+          <p class="font-semibold text-gray-800 text-sm mb-1">🏆 Recommendation</p>
+          <p class="text-xs text-gray-500 leading-relaxed">Combines all evidence and picks the strongest candidate with confidence score</p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────────────
+         SEARCH CARD
+    ───────────────────────────────────────────── -->
+    <section>
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <h2 class="text-base font-bold text-gray-800 mb-4 flex items-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="7.5" cy="7.5" r="5.5" stroke="#232f3e" stroke-width="1.8"/><path d="M12 12l3.5 3.5" stroke="#232f3e" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Product Search
+        </h2>
+        <form id="search-form" class="space-y-4" novalidate>
+          <!-- Row 1: Product + Country -->
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="flex-1">
+              <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Product Type</label>
+              <input
+                id="product-input"
+                type="text"
+                autocomplete="off"
+                placeholder="wireless headphones, coffee maker, yoga mat…"
+                required
+                class="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#007185] focus:border-transparent transition"
+              />
+            </div>
+            <div class="sm:w-44">
+              <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Marketplace</label>
+              <select
+                id="country-select"
+                class="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#007185] focus:border-transparent transition bg-white"
+              >
+                <option value="US">🇺🇸 United States</option>
+                <option value="CA">🇨🇦 Canada</option>
+                <option value="UK">🇬🇧 United Kingdom</option>
+                <option value="DE">🇩🇪 Germany</option>
+                <option value="FR">🇫🇷 France</option>
+                <option value="IT">🇮🇹 Italy</option>
+                <option value="ES">🇪🇸 Spain</option>
+                <option value="IN">🇮🇳 India</option>
+                <option value="JP">🇯🇵 Japan</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Row 2: Optional filters -->
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="sm:w-40">
+              <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                Min Rating
+                <span class="text-gray-400 font-normal normal-case ml-1">(optional)</span>
+              </label>
+              <div class="relative">
+                <input
+                  id="min-rating"
+                  type="number"
+                  min="0" max="5" step="0.1"
+                  placeholder="e.g. 4.0"
+                  class="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#007185] focus:border-transparent transition"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[#ff9900] text-sm pointer-events-none">★</span>
+              </div>
+            </div>
+            <div class="sm:w-40">
+              <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                Max Price
+                <span class="text-gray-400 font-normal normal-case ml-1">(optional)</span>
+              </label>
+              <div class="relative">
+                <span id="price-symbol" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">$</span>
+                <input
+                  id="max-price"
+                  type="number"
+                  min="0" step="0.01"
+                  placeholder="e.g. 150"
+                  class="w-full border border-gray-300 rounded-lg pl-7 pr-3.5 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#007185] focus:border-transparent transition"
+                />
+              </div>
+            </div>
+            <div class="sm:w-44">
+              <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">
+                Review Window
+                <span class="text-gray-400 font-normal normal-case ml-1">(optional)</span>
+              </label>
+              <div class="relative">
+                <input
+                  id="review-window"
+                  type="number"
+                  min="7" max="366" step="1"
+                  placeholder="90"
+                  title="How many days back to look for reviews. Between 7 and 366; blank = 90 days."
+                  class="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 pr-12 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#007185] focus:border-transparent transition"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">days</span>
+              </div>
+            </div>
+            <div class="flex-1"></div>
+          </div>
+
+          <!-- Row 3: Button + Info badges -->
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
+            <button
+              id="analyze-btn"
+              type="submit"
+              class="flex items-center gap-2 bg-[#ff9900] hover:bg-[#e68a00] text-white font-bold text-sm px-7 py-2.5 rounded-lg shadow transition-all duration-150 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <svg id="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4.5" stroke="white" stroke-width="1.8"/><path d="M10 10l3.5 3.5" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span id="btn-text">Analyze</span>
+              <!-- Spinner (hidden) -->
+              <svg id="btn-spinner" class="hidden animate-spin" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="rgba(255,255,255,0.3)" stroke-width="2.5"/>
+                <path d="M8 2a6 6 0 016 6" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+
+            <div class="flex items-center gap-3 flex-wrap">
+              <span class="text-xs text-gray-400">Powered by Amazon Bedrock · Claude Haiku 4.5</span>
+            </div>
+          </div>
+
+        </form>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────────────
+         PROGRESS SECTION
+    ───────────────────────────────────────────── -->
+    <section id="progress-section" class="hidden">
+      <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
+          <div class="flex items-center gap-2">
+            <svg id="progress-spinner" class="animate-spin text-[#007185]" width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="5" stroke="#d1d5db" stroke-width="2"/>
+              <path d="M7 2a5 5 0 015 5" stroke="#007185" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span class="text-sm font-semibold text-gray-700">Agent Activity</span>
+          </div>
+          <span id="progress-stage-badge" class="text-xs font-medium text-[#007185] bg-[#e6f3f5] px-2.5 py-0.5 rounded-full"></span>
+        </div>
+        <div id="progress-status" class="px-5 pt-2 pb-0 text-xs text-gray-500 font-mono min-h-[1.25rem]"></div>
+        <div id="dialogue-feed" class="px-5 py-3 max-h-64 overflow-y-auto space-y-2"></div>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────────────
+         RESULTS SECTION
+    ───────────────────────────────────────────── -->
+    <section id="results-section" class="hidden space-y-6">
+
+      <div id="scrape-summary" class="hidden text-sm text-gray-600 bg-white border border-gray-200 rounded-xl px-4 py-3" aria-live="polite"></div>
+      <!-- Candidates Strip -->
+      <div id="candidates-wrap" class="hidden">
+        <div class="flex items-center gap-2 mb-3">
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Candidate Products</h2>
+          <div class="flex-1 h-px bg-gray-200"></div>
+          <span id="candidates-count" class="text-xs text-gray-400"></span>
+        </div>
+        <div id="candidates-strip" class="flex gap-3 overflow-x-auto pb-2"></div>
+      </div>
+
+      <!-- Product Analysis Cards -->
+      <div id="analysis-wrap" class="hidden">
+        <div class="flex items-center gap-2 mb-3">
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Product Analysis</h2>
+          <div class="flex-1 h-px bg-gray-200"></div>
+        </div>
+        <div id="analysis-cards" class="space-y-4"></div>
+      </div>
+
+      <!-- Recommendation Card -->
+      <div id="recommendation-wrap" class="hidden">
+        <div class="flex items-center gap-2 mb-3">
+          <h2 id="recommendation-title" class="text-sm font-semibold text-gray-500 uppercase tracking-wider">AI Recommendation</h2>
+          <div class="flex-1 h-px bg-gray-200"></div>
+        </div>
+        <div id="recommendation-card"></div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════
+       FOOTER
+  ═══════════════════════════════════════════════ -->
+  <footer class="bg-[#232f3e] mt-auto">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <p class="text-[#8ba0b4] text-xs">Julie</p>
+    </div>
+  </footer>
+
+  <!-- ═══════════════════════════════════════════════
+       JAVASCRIPT
+  ═══════════════════════════════════════════════ -->
+  <script>
+    /* ─── Utility helpers ─── */
+    function escHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function renderStars(rating) {
+      if (rating === null || rating === undefined) return '<span class="text-gray-400 text-xs">N/A</span>';
+      const r = parseFloat(rating);
+      const full  = Math.floor(r);
+      const half  = (r - full) >= 0.4 ? 1 : 0;
+      const empty = 5 - full - half;
+      let html = '<span class="text-[#ff9900] text-sm" title="' + r.toFixed(1) + ' stars">';
+      for (let i = 0; i < full;  i++) html += '★';
+      if (half) html += '½';
+      for (let i = 0; i < empty; i++) html += '☆';
+      html += '</span> <span class="text-xs text-gray-500">' + r.toFixed(1) + '</span>';
+      return html;
+    }
+
+    function fmtPct(v) {
+      if (v === null || v === undefined) return 'N/A';
+      return parseFloat(v).toFixed(1) + '%';
+    }
+
+    /* ─── Amazon product links ─── */
+    let _domains = {
+      US: 'amazon.com', CA: 'amazon.ca', UK: 'amazon.co.uk', DE: 'amazon.de',
+      FR: 'amazon.fr', IT: 'amazon.it', ES: 'amazon.es', IN: 'amazon.in', JP: 'amazon.co.jp',
+    };
+
+    function amazonLink(asin) {
+      const country = document.getElementById('country-select').value || 'US';
+      const domain  = _domains[country] || 'amazon.com';
+      return `https://www.${domain}/dp/${encodeURIComponent(asin)}`;
+    }
+
+    function asinLink(asin, cls) {
+      return `<a href="${amazonLink(asin)}" target="_blank" rel="noopener noreferrer"
+                 class="${cls} hover:underline decoration-[#007185]"
+                 title="View ${escHtml(asin)} on Amazon (demo ASINs may not resolve)"
+                 onclick="event.stopPropagation()">${escHtml(asin)}<svg class="inline-block ml-0.5 -mt-0.5" width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M2 8l6-6M4 2h4v4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`;
+    }
+
+    /* ─── Marketplace currencies ─── */
+    const CURRENCY = {
+      US: { symbol: '$',  dec: 2 }, CA: { symbol: 'C$', dec: 2 },
+      UK: { symbol: '£',  dec: 2 }, DE: { symbol: '€',  dec: 2 },
+      FR: { symbol: '€',  dec: 2 }, IT: { symbol: '€',  dec: 2 },
+      ES: { symbol: '€',  dec: 2 }, IN: { symbol: '₹',  dec: 2 },
+      JP: { symbol: '¥',  dec: 0 },
+    };
+
+    function currentCurrency() {
+      const country = document.getElementById('country-select').value || 'US';
+      return CURRENCY[country] || CURRENCY.US;
+    }
+
+    function fmtPrice(v, scrapedSymbol) {
+      if (v === null || v === undefined) return 'N/A';
+      // Prefer the currency Amazon actually rendered on the scraped page
+      // (Amazon geo-detects the client and may serve converted prices, e.g.
+      // INR on amazon.com) - fall back to the marketplace default.
+      const cur = currentCurrency();
+      const symbol = scrapedSymbol || cur.symbol;
+      const dec = symbol === '¥' ? 0 : cur.dec;
+      return symbol + parseFloat(v).toLocaleString('en-US', {
+        minimumFractionDigits: dec, maximumFractionDigits: dec });
+    }
+
+    /* ─── Pipeline strip helpers ─── */
+    const STAGES = {
+      'searching': 'discovery',
+      'discovery': 'discovery',
+      'reviews':   'review',
+      'review':    'review',
+      'pricing':   'pricing',
+      'price':     'pricing',
+      'recommendation': 'recommendation',
+      'recommending':   'recommendation',
+      'complete': null,
+      'done':     null,
+    };
+
+    function setStageActive(stageKey) {
+      const cardId = STAGES[stageKey] || stageKey;
+      if (!cardId) return;
+      const card = document.getElementById('strip-' + cardId);
+      const dot  = document.getElementById('ind-' + cardId);
+      if (card) card.classList.add('pipeline-card-active');
+      if (dot)  dot.classList.add('pipeline-card-active');
+    }
+
+    function setStageDone(stageKey) {
+      const cardId = STAGES[stageKey] || stageKey;
+      if (!cardId) return;
+      const card = document.getElementById('strip-' + cardId);
+      const dot  = document.getElementById('ind-' + cardId);
+      const chk  = document.getElementById('chk-' + cardId);
+      if (card) { card.classList.remove('pipeline-card-active'); card.classList.add('pipeline-card-done'); }
+      if (dot)  { dot.classList.remove('pipeline-card-active'); dot.style.backgroundColor = '#067d62'; }
+      if (chk)  chk.classList.remove('hidden');
+    }
+
+    function resetPipelineStrip() {
+      ['discovery','review','pricing','recommendation'].forEach(id => {
+        const card = document.getElementById('strip-' + id);
+        const dot  = document.getElementById('ind-' + id);
+        const chk  = document.getElementById('chk-' + id);
+        if (card) { card.classList.remove('pipeline-card-active','pipeline-card-done'); card.style.borderColor = ''; }
+        if (dot)  { dot.classList.remove('pipeline-card-active'); dot.style.backgroundColor = ''; }
+        if (chk)  chk.classList.add('hidden');
+      });
+    }
+
+    /* ─── Progress status (single current-status line) ─── */
+    function logProgress(msg, stage) {
+      const section = document.getElementById('progress-section');
+      const status  = document.getElementById('progress-status');
+      const badge   = document.getElementById('progress-stage-badge');
+      section.classList.remove('hidden');
+      if (stage) badge.textContent = stage.toUpperCase();
+      if (status) status.textContent = msg || '';
+    }
+
+    /* ─── Dialogue feed ─── */
+    const AGENT_COLORS = {
+      'Discovery Agent':           { bg: '#fff3e0', text: '#e65100', border: '#ffcc80' },
+      'Review Intelligence Agent': { bg: '#e6f3f5', text: '#007185', border: '#b3d9e0' },
+      'Price & Rating Agent':      { bg: '#e6f4f1', text: '#067d62', border: '#b3dfd6' },
+      'Recommendation Agent':      { bg: '#e8eaf6', text: '#232f3e', border: '#c5cae9' },
+      'System':                    { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
+    };
+
+    function renderDialogue(data) {
+      const feed = document.getElementById('dialogue-feed');
+      if (!feed) return;
+      const agent   = data.agent || 'System';
+      const message = data.message || '';
+      const colors  = AGENT_COLORS[agent] || AGENT_COLORS['System'];
+
+      const row = document.createElement('div');
+      row.className = 'dialogue-bubble flex items-start gap-2';
+      row.innerHTML = `
+        <span class="shrink-0 inline-flex items-center justify-center text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap"
+              style="background:${colors.bg};color:${colors.text};border:1px solid ${colors.border};max-width:7rem;overflow:hidden;text-overflow:ellipsis;"
+              title="${escHtml(agent)}">${escHtml(agent.replace(' Agent', ''))}</span>
+        <span class="text-xs text-gray-700 leading-relaxed bg-gray-50 border border-gray-100 rounded-lg px-2.5 py-1 flex-1">${escHtml(message)}</span>`;
+      feed.appendChild(row);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    /* ─── Candidates strip ─── */
+    function renderCandidates(products) {
+      const wrap  = document.getElementById('candidates-wrap');
+      const strip = document.getElementById('candidates-strip');
+      const count = document.getElementById('candidates-count');
+      strip.innerHTML = '';
+      wrap.classList.remove('hidden');
+      document.getElementById('results-section').classList.remove('hidden');
+      count.textContent = products.length + ' found';
+
+      function tierBadge(tier, monthlyPurchases) {
+        if (tier === 'trending') {
+          const vol = monthlyPurchases ? ` · ${monthlyPurchases >= 1000 ? Math.round(monthlyPurchases/1000) + 'K' : monthlyPurchases}+/mo` : '';
+          return `<span class="text-[10px] font-bold bg-[#fff3e0] text-[#e65100] px-1.5 py-0.5 rounded-full whitespace-nowrap" title="Trending: high sales velocity (Amazon's 'bought in past month' badge) or active recent reviews, with a 4.0+ rating">🔥 Trending${vol}</span>`;
+        }
+        if (tier === 'best_seller') return '<span class="text-[10px] font-bold bg-[#e6f4f1] text-[#067d62] px-1.5 py-0.5 rounded-full whitespace-nowrap" title="4+ stars with high review volume">🏆 Best Seller</span>';
+        if (tier === 'fallback')    return '<span class="text-[10px] font-bold bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full whitespace-nowrap" title="Closest available match (negative-heavy products excluded)">Match</span>';
+        return '';
+      }
+
+      products.forEach(p => {
+        const div = document.createElement('div');
+        div.className = 'candidate-card flex-shrink-0 w-44 bg-white border border-gray-200 rounded-xl p-3 shadow-sm cursor-default';
+        div.innerHTML = `
+          <div class="flex items-center justify-between mb-1 gap-1 flex-wrap min-w-0">
+            <span class="text-xs font-bold text-[#007185] font-mono">${asinLink(p.asin, 'text-[#007185]')}</span>
+            ${tierBadge(p.discovery_tier, p.monthly_purchases)}
+          </div>
+          <div class="text-xs text-gray-700 font-medium leading-snug mb-2 line-clamp-2 h-8 overflow-hidden">${escHtml(p.title)}</div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-bold text-gray-900">${p.price != null ? fmtPrice(p.price, p.currency) : '—'}</span>
+            <span class="text-[#ff9900] text-xs">${p.rating ? '★ ' + parseFloat(p.rating).toFixed(1) : '—'}</span>
+          </div>`;
+        strip.appendChild(div);
+      });
+    }
+
+    /* ─── Product analysis card ─── */
+    function renderProductCard(data) {
+      const wrap  = document.getElementById('analysis-wrap');
+      const cards = document.getElementById('analysis-cards');
+      wrap.classList.remove('hidden');
+      document.getElementById('results-section').classList.remove('hidden');
+
+      const { product, reviews, pricing, scores } = data;
+      const scoreWidth = (v) => v !== null && v !== undefined ? Math.round(v * 100) : 0;
+
+      // Price change pill — only render when non-null
+      const priceChange = pricing && pricing.price_change_percent != null ? parseFloat(pricing.price_change_percent) : null;
+      const priceChangeHtml = priceChange !== null
+        ? `<span class="${priceChange <= 0 ? 'text-[#067d62]' : 'text-[#c0392b]'} font-semibold text-xs">
+             ${priceChange <= 0 ? '▼' : '▲'} ${Math.abs(priceChange).toFixed(2)}%
+           </span>`
+        : '';
+
+      // Previous price — only render when non-null
+      const prevPriceHtml = (pricing && pricing.previous_price != null)
+        ? `<span class="text-xs text-gray-400 line-through">${fmtPrice(pricing.previous_price, product.currency)}</span>`
+        : '';
+
+      // Range — only render when both min and max are non-null
+      const rangeHtml = (pricing && pricing.min_price != null && pricing.max_price != null)
+        ? `<p class="text-xs text-gray-400">Range: ${fmtPrice(pricing.min_price, product.currency)} – ${fmtPrice(pricing.max_price, product.currency)}</p>`
+        : '';
+
+      // Current price display — show 'Price unavailable' in gray if null
+      const currentPriceHtml = (pricing && pricing.current_price != null)
+        ? `<span class="text-base font-bold text-gray-900">${fmtPrice(pricing.current_price, product.currency)}</span>`
+        : `<span class="text-sm text-gray-400 italic">Price unavailable</span>`;
+
+      // Rating change — only render when non-null
+      const ratingChange = pricing && pricing.rating_change != null ? parseFloat(pricing.rating_change) : null;
+      const ratingChangeHtml = ratingChange !== null
+        ? `<span class="${ratingChange >= 0 ? 'text-[#067d62]' : 'text-[#c0392b]'} font-semibold text-xs">
+             ${ratingChange >= 0 ? '▲' : '▼'} ${Math.abs(ratingChange).toFixed(2)}
+           </span>`
+        : '';
+
+      // Rating trend row — hide entirely if rating_change is null (show current rating only if available)
+      let ratingTrendHtml = '';
+      if (pricing && pricing.current_rating != null) {
+        ratingTrendHtml = `<div class="flex items-baseline gap-2 mb-1">
+          <span class="text-base font-bold text-gray-900">${parseFloat(pricing.current_rating).toFixed(1)} ★</span>
+          ${pricing.previous_rating != null ? `<span class="text-xs text-gray-400">prev ${parseFloat(pricing.previous_rating).toFixed(1)}</span>` : ''}
+          ${ratingChangeHtml}
+        </div>`;
+      } else {
+        ratingTrendHtml = `<div class="flex items-baseline gap-2 mb-1"><span class="text-base font-bold text-gray-900">—</span></div>`;
+      }
+
+      const posThemes = (reviews && reviews.positive_themes) || [];
+      const negThemes = (reviews && reviews.negative_themes) || [];
+
+      const posThemesHtml = posThemes.length
+        ? posThemes.map(t => `<span class="inline-block bg-[#e6f4f1] text-[#067d62] text-xs font-medium px-2.5 py-0.5 rounded-full">${escHtml(t)}</span>`).join(' ')
+        : '<span class="text-gray-400 text-xs">None</span>';
+      const negThemesHtml = negThemes.length
+        ? negThemes.map(t => `<span class="inline-block bg-[#fdecea] text-[#c0392b] text-xs font-medium px-2.5 py-0.5 rounded-full">${escHtml(t)}</span>`).join(' ')
+        : '<span class="text-gray-400 text-xs">None</span>';
+
+      const overallScore = scores && scores.overall_score != null ? scores.overall_score : null;
+      const overallW = overallScore !== null ? Math.round(overallScore * 100) : 0;
+
+      // Header price
+      const headerPriceHtml = (product.price != null)
+        ? `<div class="text-xl font-bold text-gray-900">${fmtPrice(product.price, product.currency)}</div>`
+        : `<div class="text-sm text-gray-400 italic">Price unavailable</div>`;
+
+      // Theme source: AI (Claude) vs keyword fallback (Bedrock unreachable)
+      const sourceBadge = reviews && reviews.analysis_source === 'mock'
+        ? ' <span class="text-[9px] font-bold bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full normal-case align-middle cursor-help" title="AI was unreachable for this product \u2014 themes come from a simple keyword scan and are less reliable than AI analysis.">keyword scan</span>'
+        : reviews && reviews.analysis_source === 'unavailable'
+          ? ' <span class="text-xs text-amber-700">AI summary unavailable</span>' : '';
+
+
+      // Sub-score tooltips
+      const subScoreTooltips = {
+        review_score: 'Review (35% weight): share of recent reviews that are positive (4-5 stars). 100% = every recent review is positive.',
+        rating_score: 'Rating (25% weight): the product\u2019s star rating scaled from 1\u20135 stars to 0\u2013100%. E.g. 4.5 stars \u2248 88%.',
+        price_score:  'Price (20% weight): price movement vs. history \u2014 a price drop scores above 50%, a price rise below. No price history = neutral 50%.',
+        trend_score:  'Trend (20% weight): whether the average rating is improving or declining lately. Rising = above 50%, falling = below. No data = neutral 50%.',
+      };
+
+      const div = document.createElement('div');
+      div.className = 'result-card bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden';
+      div.innerHTML = `
+        <!-- Card header -->
+        <div class="px-5 py-4 border-b border-gray-100 flex flex-wrap items-start justify-between gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-bold text-[#007185] font-mono bg-[#e6f3f5] px-2 py-0.5 rounded">${asinLink(product.asin, 'text-[#007185]')}</span>
+            </div>
+            <h3 class="font-bold text-gray-900 text-sm leading-snug">${escHtml(product.title)}</h3>
+          </div>
+          <div class="text-right shrink-0">
+            ${headerPriceHtml}
+            <div class="mt-0.5">${renderStars(product.rating)}</div>
+          </div>
+        </div>
+
+        <!-- Card body -->
+        <div class="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+          <!-- Review stats -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reviews (last ${reviews && reviews.review_period_days ? reviews.review_period_days : 90} days)</p>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-2xl font-bold text-gray-800">${reviews ? escHtml(reviews.review_count) : '—'}</span>
+              <span class="text-xs text-gray-500">recent reviews</span>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <span class="inline-flex items-center gap-1 bg-[#e6f4f1] text-[#067d62] text-xs font-semibold px-2.5 py-1 rounded-full">
+                ✓ Positive ${reviews && reviews.positive_percentage !== null && reviews.positive_percentage !== undefined ? fmtPct(reviews.positive_percentage) : 'N/A'}
+              </span>
+              <span class="inline-flex items-center gap-1 bg-[#fdecea] text-[#c0392b] text-xs font-semibold px-2.5 py-1 rounded-full">
+                ✗ Negative ${reviews && reviews.negative_percentage !== null && reviews.negative_percentage !== undefined ? fmtPct(reviews.negative_percentage) : 'N/A'}
+              </span>
+            </div>
+          </div>
+
+          <!-- Price trend -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Price Trend</p>
+            <div class="flex items-baseline gap-2 mb-1">
+              ${currentPriceHtml}
+              ${prevPriceHtml}
+              ${priceChangeHtml}
+            </div>
+            ${rangeHtml}
+          </div>
+
+          <!-- Rating trend -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Rating Trend</p>
+            ${ratingTrendHtml}
+          </div>
+
+          <!-- Positive themes -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Positive Themes${sourceBadge}</p>
+            <div class="flex flex-wrap gap-1.5">${posThemesHtml}</div>
+          </div>
+
+          <!-- Negative themes -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Negative Themes${sourceBadge}</p>
+            <div class="flex flex-wrap gap-1.5">${negThemesHtml}</div>
+          </div>
+
+          <!-- Scores -->
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2"
+               title="Weighted blend of the four signals below: Review 35% + Rating 25% + Price 20% + Trend 20%. Higher is better.">
+              Overall Score
+              <span class="text-gray-300 normal-case font-normal cursor-help">ⓘ</span>
+            </p>
+            <div class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                <div class="score-bar-fill h-full rounded-full ${overallW >= 70 ? 'bg-[#067d62]' : overallW >= 40 ? 'bg-[#ff9900]' : 'bg-[#c0392b]'}"
+                     style="width: ${overallW}%"></div>
+              </div>
+              <span class="text-sm font-bold text-gray-700 w-10 text-right">${overallW}%</span>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5">
+              ${scores ? ['review_score','rating_score','price_score','trend_score'].map(k => `
+                <div class="flex items-center justify-between text-xs" title="${subScoreTooltips[k] || ''}">
+                  <span class="text-gray-500 capitalize">${k.replace('_score','')}</span>
+                  <span class="font-semibold text-gray-700">${scores[k] !== null && scores[k] !== undefined ? (scores[k]*100).toFixed(0)+'%' : '—'}</span>
+                </div>`).join('') : ''}
+            </div>
+          </div>
+
+        </div>`;
+      cards.appendChild(div);
+    }
+
+    function appendMarketplaceAction(div, data) {
+      if (data.alternative_country === 'IN') {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'mt-2 text-xs font-semibold underline text-[#007185]';
+        action.textContent = 'Search India instead (changes marketplace)';
+        action.addEventListener('click', () => {
+          if (btn.disabled) return;
+          document.getElementById('country-select').value = 'IN';
+          document.getElementById('country-select').dispatchEvent(new Event('change'));
+          document.getElementById('analyze-btn').closest('form').requestSubmit();
+        });
+        div.appendChild(action);
+      }
+    }
+
+    /* ─── Recommendation card ─── */
+    function renderRecommendation(data) {
+      document.getElementById('recommendation-title').textContent = data.source === 'deterministic'
+        ? 'Recommendation (computed scores)' : 'AI Recommendation';
+      const wrap = document.getElementById('recommendation-wrap');
+      const card = document.getElementById('recommendation-card');
+      wrap.classList.remove('hidden');
+      document.getElementById('results-section').classList.remove('hidden');
+
+      const conf    = data.confidence != null ? parseFloat(data.confidence) : 0;
+      const confW   = Math.round(conf * 100);
+      const confPct = data.confidence == null ? 'Not estimated' : confW + '%';
+
+      const strengths = (data.strengths || []).map(s =>
+        `<li class="flex items-start gap-2 text-sm text-gray-700">
+           <span class="text-[#067d62] font-bold shrink-0">✓</span>
+           <span>${escHtml(s)}</span>
+         </li>`).join('');
+
+      const weaknesses = (data.weaknesses || []).map(w =>
+        `<li class="flex items-start gap-2 text-sm text-gray-700">
+           <span class="text-[#c0392b] font-bold shrink-0">✗</span>
+           <span>${escHtml(w)}</span>
+         </li>`).join('');
+
+      const badgeLabel = (data.recommendation || '').replace(/_/g, ' ').toUpperCase();
+
+      card.innerHTML = `
+        <div class="result-card recommendation-glow bg-white rounded-2xl overflow-hidden border-2 border-[#ff9900]">
+          <!-- Gold header bar -->
+          <div class="bg-gradient-to-r from-[#232f3e] to-[#37475a] px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl">🏆</span>
+              <div>
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-[#ff9900] font-black text-lg tracking-tight">RECOMMENDED</span>
+                  <span class="bg-[#ff9900] text-white text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">${escHtml(badgeLabel)}</span>
+                </div>
+                <code class="text-[#8ba0b4] text-sm font-mono">${asinLink(data.asin, 'text-[#8ba0b4] hover:text-[#ff9900]')}</code>
+              </div>
+            </div>
+            <!-- Confidence ring -->
+            <div class="text-center">
+              <div class="text-3xl font-black text-[#ff9900]">${confPct}</div>
+              <div class="text-xs text-[#8ba0b4] uppercase tracking-wide">Confidence</div>
+              <div class="mt-1 w-20 h-1.5 bg-[#37475a] rounded-full overflow-hidden" title="How certain the AI is about this pick, based on evidence strength">
+                <div class="confidence-bar-fill h-full rounded-full bg-[#ff9900]" style="width:${confW}%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Body -->
+          <div class="px-6 py-5 grid grid-cols-1 md:grid-cols-3 gap-5">
+            <!-- Reason -->
+            <div class="md:col-span-3">
+              <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Analysis Summary</p>
+              <p class="text-gray-800 text-sm leading-relaxed">${escHtml(data.reason)}</p>
+            </div>
+
+            <!-- Strengths -->
+            <div class="md:col-span-1 bg-[#f0fbf8] rounded-xl p-4">
+              <p class="text-xs font-bold text-[#067d62] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#067d62" stroke-width="1.5"/><path d="M3.5 6l1.8 1.8 3-3" stroke="#067d62" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Strengths
+              </p>
+              <ul class="space-y-1.5">${strengths || '<li class="text-xs text-gray-400">None listed</li>'}</ul>
+            </div>
+
+            <!-- Weaknesses -->
+            <div class="md:col-span-1 bg-[#fff5f5] rounded-xl p-4">
+              <p class="text-xs font-bold text-[#c0392b] uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#c0392b" stroke-width="1.5"/><path d="M4 4l4 4M8 4l-4 4" stroke="#c0392b" stroke-width="1.4" stroke-linecap="round"/></svg>
+                Weaknesses
+              </p>
+              <ul class="space-y-1.5">${weaknesses || '<li class="text-xs text-gray-400">None listed</li>'}</ul>
+            </div>
+
+            <!-- Confidence breakdown -->
+            <div class="md:col-span-1 bg-gray-50 rounded-xl p-4">
+              <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Confidence Level</p>
+              <div class="flex items-center gap-3 mb-2">
+                <div class="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden" title="How certain the AI is about this pick, based on evidence strength">
+                  <div class="confidence-bar-fill h-full rounded-full ${confW >= 70 ? 'bg-[#067d62]' : confW >= 45 ? 'bg-[#ff9900]' : 'bg-[#c0392b]'}" style="width:${confW}%"></div>
+                </div>
+                <span class="text-base font-black text-gray-800">${confPct}</span>
+              </div>
+              <p class="text-xs text-gray-500">
+                ${data.confidence == null ? 'Confidence was not estimated for this computed ranking.'
+                  : confW >= 80 ? '🟢 High confidence — strong evidence across all signals'
+                  : confW >= 55 ? '🟡 Moderate confidence — most signals align'
+                  : '🔴 Low confidence — mixed or limited signals'}
+              </p>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    /* ─── Error card ─── */
+    function renderErrorCard(data) {
+      const cards = document.getElementById('analysis-cards');
+      document.getElementById('analysis-wrap').classList.remove('hidden');
+      document.getElementById('results-section').classList.remove('hidden');
+
+      const div = document.createElement('div');
+      div.className = 'result-card bg-[#fdecea] border border-[#f5c6cb] rounded-xl px-5 py-4 flex items-start gap-3';
+      div.innerHTML = `
+        <span class="text-xl mt-0.5">⚠️</span>
+        <div>
+          <p class="font-semibold text-[#c0392b] text-sm mb-0.5">
+            Error${data.asin ? ' — ' + escHtml(data.asin) : ''}
+          </p>
+          <p class="text-[#922b21] text-xs">${escHtml(data.error)}</p>
+        </div>`;
+      cards.appendChild(div);
+      appendMarketplaceAction(div, data);
+    }
+
+    /* ─── SSE pipeline stage tracker ─── */
+    let _lastStage = null;
+    function handleProgressEvent(ev) {
+      const { stage, status, message } = ev;
+      logProgress(message || status || stage, stage);
+
+      const stageKey = (stage || '').toLowerCase();
+
+      if (status === 'active' || status === 'started' || status === 'running') {
+        if (_lastStage && _lastStage !== stageKey) setStageDone(_lastStage);
+        setStageActive(stageKey);
+        _lastStage = stageKey;
+      } else if (status === 'complete' || status === 'completed' || status === 'done') {
+        setStageDone(stageKey);
+        _lastStage = null;
+      }
+    }
+
+    /* ─── Progress spinner helpers ─── */
+    function showProgressSpinner() {
+      const s = document.getElementById('progress-spinner');
+      if (s) s.classList.remove('hidden');
+    }
+    function hideProgressSpinner() {
+      const s = document.getElementById('progress-spinner');
+      if (s) s.classList.add('hidden');
+    }
+
+    /* ─── Form submit / SSE fetch ─── */
+    const form    = document.getElementById('search-form');
+    const btn     = document.getElementById('analyze-btn');
+    const btnText = document.getElementById('btn-text');
+    const btnIcon = document.getElementById('btn-icon');
+    const spinner = document.getElementById('btn-spinner');
+
+    function setLoading(on) {
+      btn.disabled = on;
+      btnText.textContent = on ? 'Analyzing…' : 'Analyze';
+      btnIcon.classList.toggle('hidden', on);
+      spinner.classList.toggle('hidden', !on);
+    }
+
+    function clearResults() {
+      document.getElementById('scrape-summary').classList.add('hidden');
+      document.getElementById('progress-section').classList.add('hidden');
+      document.getElementById('progress-status').textContent = '';
+      document.getElementById('progress-stage-badge').textContent = '';
+      document.getElementById('dialogue-feed').innerHTML = '';
+      document.getElementById('results-section').classList.add('hidden');
+      document.getElementById('candidates-wrap').classList.add('hidden');
+      document.getElementById('candidates-strip').innerHTML = '';
+      document.getElementById('analysis-wrap').classList.add('hidden');
+      document.getElementById('analysis-cards').innerHTML = '';
+      document.getElementById('recommendation-wrap').classList.add('hidden');
+      document.getElementById('recommendation-card').innerHTML = '';
+      _lastStage = null;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const productType = document.getElementById('product-input').value.trim();
+      if (!productType) {
+        document.getElementById('product-input').focus();
+        document.getElementById('product-input').classList.add('ring-2','ring-red-400');
+        setTimeout(() => document.getElementById('product-input').classList.remove('ring-2','ring-red-400'), 1500);
+        return;
+      }
+
+      clearResults();
+      setLoading(true);
+      resetPipelineStrip();
+      showProgressSpinner();
+
+      const payload = {
+        product: productType,
+        country: document.getElementById('country-select').value,
+      };
+      const minRating = document.getElementById('min-rating').value;
+      const maxPrice  = document.getElementById('max-price').value;
+      if (minRating) payload.min_rating = parseFloat(minRating);
+      if (maxPrice)  payload.max_price  = parseFloat(maxPrice);
+
+      // Review window: optional; must be 7-366 days when provided
+      const reviewWindow = document.getElementById('review-window').value;
+      if (reviewWindow) {
+        const w = parseInt(reviewWindow, 10);
+        if (isNaN(w) || w < 7 || w > 366) {
+          const el = document.getElementById('review-window');
+          el.focus();
+          el.classList.add('ring-2','ring-red-400');
+          setTimeout(() => el.classList.remove('ring-2','ring-red-400'), 1500);
+          setLoading(false);
+          hideProgressSpinner();
+          return;
+        }
+        payload.review_window_days = w;
+      }
+
+      try {
+        const resp = await fetch('/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          logProgress('Request failed: ' + resp.status + ' ' + errText);
+          hideProgressSpinner();
+          setLoading(false);
+          return;
+        }
+
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let   buf     = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          // SSE: split on double newline
+          const parts = buf.split('\n\n');
+          buf = parts.pop(); // keep incomplete chunk
+
+          for (const part of parts) {
+            if (!part.trim()) continue;
+            let eventType = 'message';
+            let dataLine  = '';
+
+            for (const line of part.split('\n')) {
+              if (line.startsWith('event:')) {
+                eventType = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                dataLine = line.slice(5).trim();
+              }
+            }
+
+            if (!dataLine) continue;
+            let parsed;
+            try { parsed = JSON.parse(dataLine); } catch { continue; }
+
+            switch (eventType) {
+              case 'scrape': {
+                const summary = document.getElementById('scrape-summary');
+                document.getElementById('results-section').classList.remove('hidden');
+                summary.classList.remove('hidden');
+                summary.textContent = `${parsed.cached ? 'Cached run: ' : ''}${parsed.search_pages} search pages opened · ${parsed.product_pages} product pages opened · ${parsed.pages_processed} pages processed · ${parsed.reviews_extracted} reviews extracted${parsed.message ? ' · ' + parsed.message : ''}`;
+                break;
+              }
+              case 'heartbeat':
+                document.getElementById('progress-stage-badge').textContent = `Running · ${parsed.elapsed_seconds}s elapsed`;
+                break;
+              case 'progress':
+                handleProgressEvent(parsed);
+                break;
+              case 'dialogue':
+                renderDialogue(parsed);
+                break;
+              case 'candidates':
+                if (parsed.products && parsed.products.length) {
+                  renderCandidates(parsed.products);
+                }
+                break;
+              case 'product_result':
+                renderProductCard(parsed);
+                break;
+              case 'recommendation':
+                if (_lastStage) setStageDone(_lastStage);
+                setStageDone('recommendation');
+                renderRecommendation(parsed);
+                break;
+              case 'error':
+                renderErrorCard(parsed);
+                if (!parsed.asin) hideProgressSpinner();
+                break;
+              case 'warning':
+                renderDialogue({agent: 'Evidence status', message: `${parsed.asin || ''}: ${parsed.error}`});
+                break;
+              case 'done':
+                logProgress(parsed.incomplete ? 'Analysis stopped — see the error above.' : 'Analysis complete ✓');
+                hideProgressSpinner();
+                setLoading(false);
+                setTimeout(resetPipelineStrip, 2000);
+                break;
+            }
+          }
+        }
+      } catch (err) {
+        logProgress('Connection error: ' + err.message);
+        hideProgressSpinner();
+      } finally {
+        hideProgressSpinner();
+        setLoading(false);
+      }
+    });
+
+    /* ─── On load: fetch countries ─── */
+    const FALLBACK_COUNTRIES = [
+      // Americas
+      { code: 'US', flag: '🇺🇸', name: 'United States' },
+      { code: 'CA', flag: '🇨🇦', name: 'Canada' },
+      { code: 'MX', flag: '🇲🇽', name: 'Mexico' },
+      { code: 'BR', flag: '🇧🇷', name: 'Brazil' },
+      { code: 'CO', flag: '🇨🇴', name: 'Colombia' },
+      // Europe
+      { code: 'UK', flag: '🇬🇧', name: 'United Kingdom' },
+      { code: 'DE', flag: '🇩🇪', name: 'Germany' },
+      { code: 'FR', flag: '🇫🇷', name: 'France' },
+      { code: 'IT', flag: '🇮🇹', name: 'Italy' },
+      { code: 'ES', flag: '🇪🇸', name: 'Spain' },
+      { code: 'NL', flag: '🇳🇱', name: 'Netherlands' },
+      { code: 'SE', flag: '🇸🇪', name: 'Sweden' },
+      { code: 'PL', flag: '🇵🇱', name: 'Poland' },
+      { code: 'BE', flag: '🇧🇪', name: 'Belgium' },
+      { code: 'IE', flag: '🇮🇪', name: 'Ireland' },
+      { code: 'TR', flag: '🇹🇷', name: 'Turkey' },
+      // Middle East & Africa
+      { code: 'AE', flag: '🇦🇪', name: 'United Arab Emirates' },
+      { code: 'SA', flag: '🇸🇦', name: 'Saudi Arabia' },
+      { code: 'EG', flag: '🇪🇬', name: 'Egypt' },
+      { code: 'ZA', flag: '🇿🇦', name: 'South Africa' },
+      { code: 'NG', flag: '🇳🇬', name: 'Nigeria' },
+      // Asia-Pacific
+      { code: 'IN', flag: '🇮🇳', name: 'India' },
+      { code: 'JP', flag: '🇯🇵', name: 'Japan' },
+      { code: 'SG', flag: '🇸🇬', name: 'Singapore' },
+      { code: 'AU', flag: '🇦🇺', name: 'Australia' },
+    ];
+
+    async function populateCountries() {
+      const sel = document.getElementById('country-select');
+      try {
+        const resp = await fetch('/countries');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        // data expected: [{code, flag, name}] or {countries:[...]}
+        const raw = Array.isArray(data) ? data : (data.countries || FALLBACK_COUNTRIES);
+        if (data.domains) _domains = data.domains;  // marketplace → amazon domain map
+        // Normalize: backend returns plain codes (["US","CA",…]); map to {code, flag, name}
+        const list = raw.map(c => {
+          if (typeof c === 'string') {
+            return FALLBACK_COUNTRIES.find(f => f.code === c) || { code: c, flag: '', name: c };
+          }
+          return c;
+        });
+        sel.innerHTML = '';
+        list.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.code;
+          opt.textContent = (c.flag ? c.flag + ' ' : '') + c.name;
+          sel.appendChild(opt);
+        });
+      } catch (_) {
+        // Fallback already rendered in HTML — no action needed
+      }
+    }
+
+    /* ─── Budget badge ─── */
+    async function refreshBudget() {
+      try {
+        const resp = await fetch('/budget');
+        if (!resp.ok) return;
+        const b = await resp.json();
+        const el = document.getElementById('budget-text');
+        el.textContent = `Budget: $${b.spent_today_usd.toFixed(4)} / $${b.daily_limit_usd.toFixed(2)} (${b.utilization_percent}%)`;
+      } catch (_) { /* server may be starting */ }
+    }
+
+    // Browsers restore form values on refresh (even with autocomplete="off") -
+    // always start with a clean search box.
+    document.getElementById('product-input').value = '';
+    document.getElementById('min-rating').value = '';
+    document.getElementById('max-price').value = '';
+    document.getElementById('review-window').value = '';
+
+    // Keep the Max Price input's currency symbol in sync with the marketplace
+    document.getElementById('country-select').addEventListener('change', () => {
+      document.getElementById('price-symbol').textContent = currentCurrency().symbol;
+    });
+
+    populateCountries();
+    refreshBudget();
+    setInterval(refreshBudget, 15000);
+  </script>
+</body>
+</html>

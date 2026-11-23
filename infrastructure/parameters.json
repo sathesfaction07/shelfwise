@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "NotificationEmail",
+    "ParameterValue": "you@example.com"
+  },
+  {
+    "ParameterKey": "DailyCostBudgetUsd",
+    "ParameterValue": "5"
+  },
+  {
+    "ParameterKey": "AgentErrorThreshold",
+    "ParameterValue": "5"
+  },
+  {
+    "ParameterKey": "InputTokenAlarmThreshold",
+    "ParameterValue": "50000"
+  },
+  {
+    "ParameterKey": "ReviewWindowDays",
+    "ParameterValue": "90"
+  },
+  {
+    "ParameterKey": "DiscoveryPoolSize",
+    "ParameterValue": "8"
+  }
+]

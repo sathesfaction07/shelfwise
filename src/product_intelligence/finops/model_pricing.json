@@ -1,0 +1,22 @@
+{
+  "anthropic.claude-haiku-4-5-20251001-v1:0": {
+    "input_price_per_million": 1.00,
+    "output_price_per_million": 5.00
+  },
+  "us.anthropic.claude-haiku-4-5-20251001-v1:0": {
+    "input_price_per_million": 1.00,
+    "output_price_per_million": 5.00
+  },
+  "anthropic.claude-sonnet-4-6-20260101-v1:0": {
+    "input_price_per_million": 3.00,
+    "output_price_per_million": 15.00
+  },
+  "us.anthropic.claude-sonnet-4-6-20260101-v1:0": {
+    "input_price_per_million": 3.00,
+    "output_price_per_million": 15.00
+  },
+  "amazon.nova-micro-v1:0": {
+    "input_price_per_million": 0.035,
+    "output_price_per_million": 0.14
+  }
+}
