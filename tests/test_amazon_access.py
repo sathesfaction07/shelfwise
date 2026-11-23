@@ -3,7 +3,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from product_intelligence.providers.amazon import AmazonAccessError, AmazonProvider, check_search_page
+from product_intelligence.providers.amazon import (
+    AmazonAccessError,
+    AmazonProvider,
+    check_search_page,
+)
 
 
 def test_persistent_amazon_error_page_stops_after_one_retry(monkeypatch):
@@ -32,6 +36,7 @@ def test_verification_challenge_stops_collection():
 
 def test_transient_error_page_recovers_on_next_attempt(monkeypatch):
     from unittest.mock import PropertyMock
+
     from selenium.webdriver.support.ui import WebDriverWait
 
     driver = Mock()
@@ -57,6 +62,7 @@ def test_regular_search_is_not_classified_as_error():
 
 def test_error_stream_offers_explicit_marketplace_switch(monkeypatch):
     import app
+
     from product_intelligence.observability.metrics import MetricsClient
 
     monkeypatch.setattr(app.daily_cache, "get_cached_result", lambda *args: None)

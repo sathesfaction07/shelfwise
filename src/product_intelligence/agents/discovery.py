@@ -105,7 +105,9 @@ class DiscoveryAgent:
             all_reviews = self.provider.get_reviews(product["asin"], country)
         except Exception:  # provider hiccup - treat as no review signal
             all_reviews = []
-        recent = review_analysis.filter_recent(review_analysis.deduplicate(all_reviews), window_days)
+        recent = review_analysis.filter_recent(
+            review_analysis.deduplicate(all_reviews), window_days
+        )
         stats = review_analysis.calculate_statistics(recent)
         # Histogram = Amazon's own star distribution over ALL ratings ever -
         # a far wider negative-share signal than the visible reviews alone.
@@ -124,7 +126,10 @@ class DiscoveryAgent:
             product_rating = float(e["product"].get("rating") or 0)
             monthly = e["product"].get("monthly_purchases") or 0
             # Path 1: verified sales velocity + acceptable rating
-            if monthly >= config.TRENDING_MIN_MONTHLY_PURCHASES and product_rating >= config.TRENDING_MIN_AVG_RATING:
+            if (
+                monthly >= config.TRENDING_MIN_MONTHLY_PURCHASES
+                and product_rating >= config.TRENDING_MIN_AVG_RATING
+            ):
                 return True
             # Path 2: visible recent-review momentum (original gate)
             return (

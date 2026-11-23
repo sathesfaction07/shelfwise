@@ -8,7 +8,7 @@ model invocation response or CloudWatch. We use a simple heuristic
 to reason about relative reduction (raw vs optimized) even if the
 absolute number differs slightly from the model's real tokenizer.
 """
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 
 def estimate_token_count(text: str) -> int:

@@ -7,16 +7,18 @@ LLM does: theme extraction, summarization, sentiment interpretation -
 and ONLY over the small, already-reduced sample (never raw reviews).
 """
 from product_intelligence import config
+from product_intelligence import llm as llm_client
 from product_intelligence.analysis import reviews as review_analysis
-from product_intelligence.tools.token_optimizer import measure_reduction
-from product_intelligence.tools import mock_llm
 from product_intelligence.observability.logging import log_event
 from product_intelligence.observability.metrics import MetricsClient
-from product_intelligence import llm as llm_client
+from product_intelligence.tools import mock_llm
+from product_intelligence.tools.token_optimizer import measure_reduction
 
 
 class ReviewIntelligenceAgent:
-    def __init__(self, provider, metrics_client: MetricsClient | None = None, use_mock: bool = False):
+    def __init__(
+        self, provider, metrics_client: MetricsClient | None = None, use_mock: bool = False
+    ):
         self.provider = provider
         self.metrics = metrics_client or MetricsClient()
         self.use_mock = use_mock
@@ -26,7 +28,9 @@ class ReviewIntelligenceAgent:
                 window_days: int | None = None) -> dict:
         window_days = window_days or config.REVIEW_WINDOW_DAYS
         all_reviews = self.provider.get_reviews(asin, country)
-        self.metrics.publish("ReviewsFetched", len(all_reviews), dimensions={"AgentName": "review_intelligence"})
+        self.metrics.publish(
+            "ReviewsFetched", len(all_reviews), dimensions={"AgentName": "review_intelligence"}
+        )
 
         recent = review_analysis.filter_recent(all_reviews, window_days)
         deduped = review_analysis.deduplicate(recent)
@@ -43,7 +47,9 @@ class ReviewIntelligenceAgent:
                 for sentiment, items in sample.items()
             }
 
-        self.metrics.publish("ReviewsAnalyzed", len(deduped), dimensions={"AgentName": "review_intelligence"})
+        self.metrics.publish(
+            "ReviewsAnalyzed", len(deduped), dimensions={"AgentName": "review_intelligence"}
+        )
 
         if not deduped:
             log_event("review_analysis_no_data", asin=asin, country=country)
@@ -71,8 +77,16 @@ class ReviewIntelligenceAgent:
             optimized_estimated_tokens=reduction.optimized_estimate,
             token_reduction_percent=reduction.reduction_percent,
         )
-        self.metrics.publish("RawEstimatedTokens", reduction.raw_estimate, dimensions={"AgentName": "review_intelligence"})
-        self.metrics.publish("OptimizedEstimatedTokens", reduction.optimized_estimate, dimensions={"AgentName": "review_intelligence"})
+        self.metrics.publish(
+            "RawEstimatedTokens",
+            reduction.raw_estimate,
+            dimensions={"AgentName": "review_intelligence"},
+        )
+        self.metrics.publish(
+            "OptimizedEstimatedTokens",
+            reduction.optimized_estimate,
+            dimensions={"AgentName": "review_intelligence"},
+        )
         self.metrics.publish("TokenReductionPercent", reduction.reduction_percent, unit="Percent",
                               dimensions={"AgentName": "review_intelligence"})
 
@@ -109,11 +123,12 @@ class ReviewIntelligenceAgent:
                 "Do not add other keys or invent facts."
             )
             prompt += (
-                '\nReturn ONE JSON object in exactly this structure, filling values from the evidence: '
+                "\nReturn ONE JSON object in exactly this structure, "
+                "filling values from the evidence: "
                 '{"positive_themes": [], "negative_themes": [], '
                 '"overall_sentiment": "mixed", "summary": ""}. '
-                'Each list: at most 2 short phrases. Summary: at most 20 words. '
-                'Do not use headings, separate objects or markdown.'
+                "Each list: at most 2 short phrases. Summary: at most 20 words. "
+                "Do not use headings, separate objects or markdown."
             )
         try:
             # Use Nova Micro for theme extraction (97% cheaper than Haiku).
@@ -136,10 +151,16 @@ class ReviewIntelligenceAgent:
         except Exception as exc:
             if self.allow_partial:
                 log_event("review_summary_unavailable", reason=str(exc))
-                return {"positive_themes": [], "negative_themes": [],
-                        "overall_sentiment": "unavailable", "source": "unavailable",
-                        "error": str(exc),
-                        "summary": "AI summary unavailable. Review statistics use the collected evidence."}
+                return {
+                    "positive_themes": [],
+                    "negative_themes": [],
+                    "overall_sentiment": "unavailable",
+                    "source": "unavailable",
+                    "error": str(exc),
+                    "summary": (
+                        "AI summary unavailable. Review statistics use the collected evidence."
+                    ),
+                }
             if config.REQUIRE_LLM_SUCCESS:
                 raise
             log_event("review_llm_fallback_to_mock", reason=str(exc))

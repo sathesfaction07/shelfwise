@@ -1,7 +1,10 @@
 from datetime import date, timedelta
 
 from product_intelligence.analysis.reviews import (
-    filter_recent, deduplicate, calculate_statistics, sample_representative,
+    calculate_statistics,
+    deduplicate,
+    filter_recent,
+    sample_representative,
 )
 
 

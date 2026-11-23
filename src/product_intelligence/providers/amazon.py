@@ -23,16 +23,16 @@ rest of the application (DemoProvider) must keep working regardless
 Selectors below are best-effort and WILL break as Amazon changes its page
 markup; treat this as a reference implementation, not a maintained scraper.
 """
-import sys
-import time
 import atexit
 import signal
+import sys
+import time
 import weakref
 from urllib.parse import quote_plus
 
 from product_intelligence import config
+from product_intelligence.observability.logging import log_error, log_event
 from product_intelligence.providers.base import ProductDataProvider
-from product_intelligence.observability.logging import log_event, log_error
 
 
 class BrowserSetupError(RuntimeError):
@@ -274,10 +274,14 @@ class AmazonProvider(ProductDataProvider):
         (DiscoveryAgent) can be swapped back to DemoProvider without code
         changes elsewhere (spec section 48).
         """
+        from selenium.common.exceptions import (
+            NoSuchDriverException,
+            TimeoutException,
+            WebDriverException,
+        )
         from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC  # noqa: N812 -- Selenium's documented alias
         from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.common.exceptions import NoSuchDriverException, TimeoutException, WebDriverException
 
         cache_key = (product_type.strip().lower(), country.upper())
         if cache_key in self._search_cache:
@@ -340,7 +344,12 @@ class AmazonProvider(ProductDataProvider):
                 log_error("amazon_search_failed", exc, product_type=product_type, country=country)
                 self.close()
             except Exception as exc:  # noqa: BLE001 - unexpected page-structure change fails soft
-                log_error("amazon_search_unexpected_error", exc, product_type=product_type, country=country)
+                log_error(
+                    "amazon_search_unexpected_error",
+                    exc,
+                    product_type=product_type,
+                    country=country,
+                )
                 return []
 
         log_event("amazon_search", product_type=product_type, country=country, result_count=0)
@@ -394,7 +403,9 @@ class AmazonProvider(ProductDataProvider):
                 # geo-detects the client and may use ANY currency format
                 # ("$38.07", "38,07 €", "￥3,807", "INR 3,807.37") - parse
                 # with locale-aware separator handling.
-                price_text = el.find_element(By.CSS_SELECTOR, "span.a-price span.a-offscreen").get_attribute("textContent")
+                price_text = el.find_element(
+                    By.CSS_SELECTOR, "span.a-price span.a-offscreen"
+                ).get_attribute("textContent")
                 price = _parse_price(price_text)
                 currency = _detect_currency(price_text)
                 if currency is None and price is not None:
@@ -403,7 +414,9 @@ class AmazonProvider(ProductDataProvider):
                 price = None
                 currency = None
             try:
-                rating_text = el.find_element(By.CSS_SELECTOR, "span.a-icon-alt").get_attribute("innerText")
+                rating_text = el.find_element(By.CSS_SELECTOR, "span.a-icon-alt").get_attribute(
+                    "innerText"
+                )
                 rating = float(rating_text.split(" ")[0])
             except Exception:
                 rating = None
@@ -466,10 +479,10 @@ class AmazonProvider(ProductDataProvider):
         the single biggest latency win for live mode.
         Results land in self._reviews_cache; get_reviews() reads from it.
         """
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
         from selenium.common.exceptions import TimeoutException
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC  # noqa: N812 -- Selenium's documented alias
+        from selenium.webdriver.support.ui import WebDriverWait
 
         todo = [a for a in asins if a not in self._reviews_cache]
         if not todo:
@@ -529,10 +542,10 @@ class AmazonProvider(ProductDataProvider):
         if asin in self._reviews_cache:
             return list(self._reviews_cache[asin])
 
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
         from selenium.common.exceptions import TimeoutException, WebDriverException
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC  # noqa: N812 -- Selenium's documented alias
+        from selenium.webdriver.support.ui import WebDriverWait
 
         try:
             driver = self._get_driver()
@@ -554,7 +567,9 @@ class AmazonProvider(ProductDataProvider):
             self.page_stats["pages_processed"] += 1
             self.page_stats["reviews_extracted"] += len(reviews)
             self._report_pages()
-            log_event("amazon_reviews_fetched", asin=asin, country=country, review_count=len(reviews))
+            log_event(
+                "amazon_reviews_fetched", asin=asin, country=country, review_count=len(reviews)
+            )
             return reviews
 
         except (TimeoutException, WebDriverException) as exc:
@@ -581,6 +596,7 @@ class AmazonProvider(ProductDataProvider):
         Works without login. Returns {} on any failure.
         """
         import re
+
         from selenium.webdriver.common.by import By
 
         out: dict = {}
@@ -615,7 +631,11 @@ class AmazonProvider(ProductDataProvider):
                 # Star rating: /product-reviews/ uses review-star-rating,
                 # /dp/ pages use cmps-review-star-rating. The span is
                 # visually hidden, so read textContent (not .text).
-                rating_el = el.find_elements(By.CSS_SELECTOR, "i[data-hook='review-star-rating'] span, i[data-hook='cmps-review-star-rating'] span")
+                rating_el = el.find_elements(
+                    By.CSS_SELECTOR,
+                    "i[data-hook='review-star-rating'] span, "
+                    "i[data-hook='cmps-review-star-rating'] span",
+                )
                 if not rating_el:
                     continue
                 rating_text = rating_el[0].get_attribute("textContent")
@@ -640,11 +660,15 @@ class AmazonProvider(ProductDataProvider):
                 # /dp/ pages append expander UI text; strip it
                 for noise in ("Read moreRead less", "Read more", "Read less"):
                     text = text.replace(noise, "").strip()
-                raw_date = el.find_element(By.CSS_SELECTOR, "span[data-hook='review-date']").get_attribute("textContent")
+                raw_date = el.find_element(
+                    By.CSS_SELECTOR, "span[data-hook='review-date']"
+                ).get_attribute("textContent")
                 date_text = parse_review_date(raw_date)
                 verified = bool(el.find_elements(By.CSS_SELECTOR, "span[data-hook='avp-badge']"))
                 try:
-                    helpful_text = el.find_element(By.CSS_SELECTOR, "span[data-hook='helpful-vote-statement']").get_attribute("textContent")
+                    helpful_text = el.find_element(
+                        By.CSS_SELECTOR, "span[data-hook='helpful-vote-statement']"
+                    ).get_attribute("textContent")
                     helpful_votes = int("".join(c for c in helpful_text if c.isdigit()) or 0)
                 except Exception:
                     helpful_votes = 0
@@ -676,4 +700,12 @@ class AmazonProvider(ProductDataProvider):
         if not product or product.get("price") is None:
             return []
         from datetime import date
-        return [{"asin": asin, "date": date.today().isoformat(), "country": country, "price": product["price"]}]
+
+        return [
+            {
+                "asin": asin,
+                "date": date.today().isoformat(),
+                "country": country,
+                "price": product["price"],
+            }
+        ]

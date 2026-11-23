@@ -12,9 +12,9 @@ import time
 
 from product_intelligence import config
 from product_intelligence.aws import client as aws_client
-from product_intelligence.finops.usage import TokenUsage
 from product_intelligence.finops.budget import daily_budget
-from product_intelligence.observability.logging import log_event, log_error
+from product_intelligence.finops.usage import TokenUsage
+from product_intelligence.observability.logging import log_error, log_event
 from product_intelligence.observability.metrics import MetricsClient
 
 
@@ -85,7 +85,14 @@ def invoke(
 
     if is_nova:
         body = {
-            "messages": [{"role": "user", "content": [{"text": (system_prompt + "\n\n" + prompt) if system_prompt else prompt}]}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"text": (system_prompt + "\n\n" + prompt) if system_prompt else prompt}
+                    ],
+                }
+            ],
             "inferenceConfig": {"maxTokens": max_tokens, "temperature": 0.1},
         }
     else:
@@ -126,8 +133,12 @@ def invoke(
             usage_data = payload.get("usage", {})
             usage = TokenUsage(
                 model_id=model_id,
-                input_tokens=usage_data.get("inputTokens", 0) if converse_shape else usage_data.get("input_tokens", 0),
-                output_tokens=usage_data.get("outputTokens", 0) if converse_shape else usage_data.get("output_tokens", 0),
+                input_tokens=usage_data.get("inputTokens", 0)
+                if converse_shape
+                else usage_data.get("input_tokens", 0),
+                output_tokens=usage_data.get("outputTokens", 0)
+                if converse_shape
+                else usage_data.get("output_tokens", 0),
             )
 
             cost = usage.cost_breakdown()
@@ -142,8 +153,12 @@ def invoke(
                 latency_ms=latency_ms,
             )
             metrics_client.publish("AgentInvocations", 1, dimensions={"AgentName": agent_name})
-            metrics_client.publish("InputTokens", usage.input_tokens, dimensions={"AgentName": agent_name})
-            metrics_client.publish("OutputTokens", usage.output_tokens, dimensions={"AgentName": agent_name})
+            metrics_client.publish(
+                "InputTokens", usage.input_tokens, dimensions={"AgentName": agent_name}
+            )
+            metrics_client.publish(
+                "OutputTokens", usage.output_tokens, dimensions={"AgentName": agent_name}
+            )
             metrics_client.publish("EstimatedLLMCost", cost["estimated_total_cost"], unit="None",
                                     dimensions={"AgentName": agent_name})
 

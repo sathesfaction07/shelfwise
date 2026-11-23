@@ -7,7 +7,6 @@ without touching CSV data or the network.
 """
 from datetime import date, timedelta
 
-from product_intelligence import config
 from product_intelligence.agents.discovery import DiscoveryAgent
 from product_intelligence.observability.metrics import MetricsClient
 from product_intelligence.providers.base import ProductDataProvider
@@ -53,7 +52,13 @@ def test_trending_products_rank_first():
     """A product with heavy recent review activity outranks a higher-rated
     one with no recent reviews."""
     products = [
-        {"asin": "OLD", "title": "Old Favorite", "price": 50.0, "rating": 4.9, "review_count": 20000},
+        {
+            "asin": "OLD",
+            "title": "Old Favorite",
+            "price": 50.0,
+            "rating": 4.9,
+            "review_count": 20000,
+        },
         {"asin": "HOT", "title": "Hot Newcomer", "price": 45.0, "rating": 4.2, "review_count": 300},
     ]
     reviews = {
@@ -75,7 +80,13 @@ def test_bestsellers_fill_when_nothing_trends():
     """No recent reviews anywhere -> best sellers ranked by rating x volume."""
     products = [
         {"asin": "SMALL", "title": "Niche 5-star", "price": 10.0, "rating": 5.0, "review_count": 3},
-        {"asin": "BIG", "title": "Popular 4.6-star", "price": 20.0, "rating": 4.6, "review_count": 12000},
+        {
+            "asin": "BIG",
+            "title": "Popular 4.6-star",
+            "price": 20.0,
+            "rating": 4.6,
+            "review_count": 12000,
+        },
         {"asin": "MEH", "title": "Mediocre", "price": 5.0, "rating": 3.2, "review_count": 9000},
     ]
     candidates = _agent(StubProvider(products, {})).find_candidates("widget", "US")
@@ -124,12 +135,20 @@ def test_every_candidate_carries_a_tier_marker():
     ]
     candidates = _agent(StubProvider(products, {})).find_candidates("widget", "US")
     assert len(candidates) > 0
-    assert all(c.get("discovery_tier") in ("trending", "best_seller", "fallback") for c in candidates)
+    assert all(
+        c.get("discovery_tier") in ("trending", "best_seller", "fallback") for c in candidates
+    )
 
 
 def test_respects_max_products_cap():
     products = [
-        {"asin": f"P{i}", "title": f"Product {i}", "price": 10.0, "rating": 4.5, "review_count": 1000}
+        {
+            "asin": f"P{i}",
+            "title": f"Product {i}",
+            "price": 10.0,
+            "rating": 4.5,
+            "review_count": 1000,
+        }
         for i in range(10)
     ]
     candidates = _agent(StubProvider(products, {})).find_candidates("widget", "US", max_products=3)

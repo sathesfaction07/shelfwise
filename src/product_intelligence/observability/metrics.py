@@ -41,9 +41,13 @@ class MetricsClient:
             self._client = aws_client("cloudwatch")
         return self._client
 
-    def publish(self, metric_name: str, value: float, unit: str = "Count", dimensions: dict | None = None):
+    def publish(
+        self, metric_name: str, value: float, unit: str = "Count", dimensions: dict | None = None
+    ):
         if metric_name not in _METRIC_NAMES:
-            raise ValueError(f"Unknown metric name {metric_name!r}. Add it to _METRIC_NAMES if intentional.")
+            raise ValueError(
+                f"Unknown metric name {metric_name!r}. Add it to _METRIC_NAMES if intentional."
+            )
         if not self.enabled:
             return None
 

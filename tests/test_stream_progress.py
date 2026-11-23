@@ -73,8 +73,8 @@ def test_unexpected_worker_error_ends_stream(monkeypatch):
 
 def test_complete_pipeline_stream_reaches_recommendation_and_done(monkeypatch):
     setup_local_stream(monkeypatch)
-    from product_intelligence.agents.review import ReviewIntelligenceAgent
     from product_intelligence.agents.recommendation import RecommendationAgent
+    from product_intelligence.agents.review import ReviewIntelligenceAgent
     from tests.mock_provider import MockProvider
 
     provider = MockProvider()

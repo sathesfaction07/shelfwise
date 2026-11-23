@@ -26,7 +26,9 @@ class CostReportBuilder:
 
         by_agent: dict[str, float] = {}
         for r in self._records:
-            by_agent[r["agent_name"]] = round(by_agent.get(r["agent_name"], 0) + r["estimated_total_cost"], 6)
+            by_agent[r["agent_name"]] = round(
+                by_agent.get(r["agent_name"], 0) + r["estimated_total_cost"], 6
+            )
 
         return {
             "date": report_date,

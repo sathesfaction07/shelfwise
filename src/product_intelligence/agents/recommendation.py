@@ -6,13 +6,12 @@ the LLM never invents the score, it only explains it. This is the last
 stop: it reasons over already-processed evidence from the other three
 agents, it does not re-fetch reviews itself (spec section 8).
 """
-import json
 
 from product_intelligence import config
-from product_intelligence.tools import mock_llm
+from product_intelligence import llm as llm_client
 from product_intelligence.observability.logging import log_event
 from product_intelligence.observability.metrics import MetricsClient
-from product_intelligence import llm as llm_client
+from product_intelligence.tools import mock_llm
 
 
 def _normalize(value: float | None, lo: float, hi: float) -> float:
@@ -93,11 +92,20 @@ class RecommendationAgent:
             best = max(evaluated_candidates, key=lambda c: c["scores"]["overall_score"])
             score = best["scores"]["overall_score"]
             result = {
-                "asin": best["product"]["asin"], "recommendation": "score_based",
-                "reason": f"Highest computed score ({score:.3f}) among {len(evaluated_candidates)} candidates. AI explanation unavailable.",
+                "asin": best["product"]["asin"],
+                "recommendation": "score_based",
+                "reason": (
+                    f"Highest computed score ({score:.3f}) among "
+                    f"{len(evaluated_candidates)} candidates. AI explanation unavailable."
+                ),
                 "strengths": ["Highest score under the configured ranking weights"],
-                "weaknesses": ["Model explanation unavailable", "Ranking uses only available evidence"],
-                "confidence": None, "source": "deterministic", "analysis_error": str(exc),
+                "weaknesses": [
+                    "Model explanation unavailable",
+                    "Ranking uses only available evidence",
+                ],
+                "confidence": None,
+                "source": "deterministic",
+                "analysis_error": str(exc),
             }
 
         log_event(
@@ -127,10 +135,15 @@ class RecommendationAgent:
         )
         try:
             if config.AWS_MODE == "floci":
-                prompt += " Keep reason under 25 words and strengths/weaknesses to at most 2 short phrases each."
-                prompt += (' Return exactly ONE JSON object: {"recommendation":"moderate_candidate",'
-                           '"asin":"<choose from candidates>","reason":"",'
-                           '"strengths":[],"weaknesses":[],"confidence":0.0}. Fill from the evidence.')
+                prompt += (
+                    " Keep reason under 25 words and strengths/weaknesses"
+                    " to at most 2 short phrases each."
+                )
+                prompt += (
+                    ' Return exactly ONE JSON object: {"recommendation":"moderate_candidate",'
+                    '"asin":"<choose from candidates>","reason":"",'
+                    '"strengths":[],"weaknesses":[],"confidence":0.0}. Fill from the evidence.'
+                )
             result = llm_client.invoke(
                 prompt=prompt,
                 system_prompt="Do not invent facts. Only reason over the supplied evidence.",
@@ -139,14 +152,19 @@ class RecommendationAgent:
                 metrics_client=self.metrics,
             )
             parsed = llm_client.extract_json(result.text)
-            if (parsed.get("asin") not in {c["asin"] for c in scored_candidates}
-                    or parsed.get("recommendation") not in {"strong_candidate", "moderate_candidate", "weak_candidate"}
-                    or not isinstance(parsed.get("reason"), str)
-                    or not isinstance(parsed.get("strengths"), list)
-                    or not isinstance(parsed.get("weaknesses"), list)
-                    or not isinstance(parsed.get("confidence"), (int, float))
-                    or not 0 <= parsed["confidence"] <= 1):
-                raise ValueError("Recommendation model response did not match the required JSON schema")
+            if (
+                parsed.get("asin") not in {c["asin"] for c in scored_candidates}
+                or parsed.get("recommendation")
+                not in {"strong_candidate", "moderate_candidate", "weak_candidate"}
+                or not isinstance(parsed.get("reason"), str)
+                or not isinstance(parsed.get("strengths"), list)
+                or not isinstance(parsed.get("weaknesses"), list)
+                or not isinstance(parsed.get("confidence"), (int, float))
+                or not 0 <= parsed["confidence"] <= 1
+            ):
+                raise ValueError(
+                    "Recommendation model response did not match the required JSON schema"
+                )
             return parsed
         except Exception as exc:
             if config.REQUIRE_LLM_SUCCESS or self.allow_partial:

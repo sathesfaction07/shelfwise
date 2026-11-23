@@ -2,12 +2,12 @@
 Full pipeline test using MockProvider (never live Amazon) and mock LLM
 (no AWS credentials required to run this suite).
 """
-from tests.mock_provider import MockProvider
 from product_intelligence.agents.discovery import DiscoveryAgent
 from product_intelligence.agents.pricing import PriceRatingAgent
-from product_intelligence.agents.review import ReviewIntelligenceAgent
 from product_intelligence.agents.recommendation import RecommendationAgent, compute_score
+from product_intelligence.agents.review import ReviewIntelligenceAgent
 from product_intelligence.observability.metrics import MetricsClient
+from tests.mock_provider import MockProvider
 
 
 def run_pipeline(product_type: str, country: str):
@@ -27,7 +27,14 @@ def run_pipeline(product_type: str, country: str):
         review_result = review_agent.analyze(asin, country, product_title=product["title"])
         pricing_result = price_rating.analyze(asin, country, recent_reviews=all_reviews)
         scores = compute_score(product, review_result, pricing_result)
-        evaluated.append({"product": product, "reviews": review_result, "pricing": pricing_result, "scores": scores})
+        evaluated.append(
+            {
+                "product": product,
+                "reviews": review_result,
+                "pricing": pricing_result,
+                "scores": scores,
+            }
+        )
 
     recommendation = recommender.recommend(evaluated)
     return candidates, evaluated, recommendation
@@ -38,7 +45,11 @@ def test_full_pipeline_produces_a_recommendation():
     assert len(candidates) > 0
     assert len(evaluated) == len(candidates)
     assert recommendation["asin"] in [c["asin"] for c in candidates]
-    assert recommendation["recommendation"] in ("strong_candidate", "moderate_candidate", "weak_candidate")
+    assert recommendation["recommendation"] in (
+        "strong_candidate",
+        "moderate_candidate",
+        "weak_candidate",
+    )
     assert 0.0 <= recommendation["confidence"] <= 1.0
 
 

@@ -41,6 +41,7 @@ def test_ui_explains_driver_failure(monkeypatch):
 
 def test_browser_does_not_inherit_server_sockets(monkeypatch):
     from unittest.mock import Mock
+
     from selenium import webdriver
 
     chrome = Mock()
