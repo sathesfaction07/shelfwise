@@ -22,7 +22,7 @@ _DEFAULT_PRICING = {
 
 def load_pricing() -> dict:
     if os.path.exists(_PRICING_FILE):
-        with open(_PRICING_FILE) as f:
+        with open(_PRICING_FILE, encoding="utf-8") as f:
             return json.load(f)
     return _DEFAULT_PRICING
 

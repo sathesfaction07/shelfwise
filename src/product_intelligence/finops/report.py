@@ -42,6 +42,6 @@ class CostReportBuilder:
 
     def write(self, path: str, report_date: str | None = None) -> dict:
         report = self.build(report_date)
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
         return report
